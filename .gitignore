@@ -1,0 +1,29 @@
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+
+# ข้อมูลการใช้งาน — มีข้อความคำสั่งและคำตอบของผู้ใช้ ห้ามขึ้น repo
+logs/
+*.log
+
+# ไฟล์ที่ระบบสร้างเองตอนรัน
+gemini_cli_settings.json
+
+# ความลับ (ระบบอ่านจาก Environment Variables ไม่ใช่ไฟล์ — กันไว้เผื่อมีคนสร้างเอง)
+.env
+.env.*
+*.key
+*.pem
+secrets*
+
+# เครื่องมือ/ระบบปฏิบัติการ
+.claude/
+.vscode/
+.idea/
+*.bak
+*.bak-*
+Thumbs.db
+desktop.ini
+.DS_Store

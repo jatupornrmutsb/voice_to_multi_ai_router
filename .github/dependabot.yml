@@ -1,0 +1,8 @@
+# แจ้งเตือนและเปิด PR อัตโนมัติเมื่อไลบรารีใน requirements.txt มีช่องโหว่หรือเวอร์ชันใหม่
+version: 2
+updates:
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5

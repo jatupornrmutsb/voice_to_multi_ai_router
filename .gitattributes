@@ -1,0 +1,7 @@
+# สคริปต์ Windows ต้องเป็น CRLF ไม่อย่างนั้น cmd.exe อ่าน label/goto ผิด
+*.bat  text eol=crlf
+*.ps1  text eol=crlf
+*.py   text eol=lf
+*.html text eol=lf
+*.md   text eol=lf
+*.txt  text eol=lf
