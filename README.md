@@ -103,3 +103,7 @@
 | `start_router.bat` | เปิดใช้งาน (ยังไม่ติดตั้ง → เรียกตัวติดตั้งให้) |
 | `uninstall.bat` / `uninstall.ps1` | ถอนการตั้งค่า |
 | `requirements.txt` | ไลบรารี Python (ล็อกเวอร์ชัน) |
+
+## สัญญาอนุญาต
+
+[MIT](LICENSE)
