@@ -48,6 +48,8 @@
   #status { white-space: pre-wrap; min-height: 1.55em; overflow-wrap: anywhere; }
   .hint { font-size: 13px; color: var(--muted); }
   .row.words label { flex: 1 1 260px; }
+  #silenceSec { width: 4.2em; font: inherit; color: inherit; background: var(--input);
+    border: 1px solid var(--line); border-radius: 6px; padding: 2px 4px; text-align: center; }
   .row.words input { flex: 1; min-width: 0; font: inherit; color: inherit; background: var(--input);
     border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; }
   #confirmBox .hint { margin-top: 4px; }
@@ -96,8 +98,9 @@
     <div class="row">
       <label title="ติ๊ก = กด Enter ในโปรแกรมปลายทางให้ / ไม่ติ๊ก = วางไว้ให้ตรวจก่อน">
         <input type="checkbox" id="autoSend"> Auto Send</label>
-      <label title="พูดจบแล้วเงียบ 1.5 วินาที ระบบกดส่งให้เอง">
-        <input type="checkbox" id="sendOnSilence"> ส่งเมื่อหยุดพูด</label>
+      <label title="พูดจบแล้วเงียบตามเวลาที่ตั้ง ระบบกดส่งให้เอง">
+        <input type="checkbox" id="sendOnSilence"> ส่งเมื่อหยุดพูด
+        <input type="number" id="silenceSec" min="0.5" max="10" step="0.5" title="เงียบกี่วินาทีจึงส่ง (0.5–10)"> วิ</label>
       <label title="ยังไม่ส่งจนกว่าจะพูดคำยืนยัน (หรือกดปุ่มส่ง) — พูดคำยกเลิกเพื่อไม่ส่ง">
         <input type="checkbox" id="confirmVoice"> รอพูดยืนยัน</label>
       <span class="sp"></span>
@@ -114,13 +117,13 @@
   </section>
 
   <section>
-    <div class="label">3. เลือกเครื่องมือ (ปุ่มจาง = ติดตั้งแล้วแต่ยังไม่เปิด) · 🟢 ฟรี · 🟡 ฟรีจำกัด/ใช้สิทธิ์ที่มี · 🔴 ใช้โควตา Claude</div>
-    <div class="tools" id="tools"></div>
+    <div class="label">3. ผลลัพธ์</div>
+    <div id="status">กำลังตรวจเครื่องมือในเครื่อง…</div>
   </section>
 
   <section>
-    <div class="label">4. ผลลัพธ์</div>
-    <div id="status">กำลังตรวจเครื่องมือในเครื่อง…</div>
+    <div class="label">4. เลือกเครื่องมือ (ปุ่มจาง = ติดตั้งแล้วแต่ยังไม่เปิด) · 🟢 ฟรี · 🟡 ฟรีจำกัด/ใช้สิทธิ์ที่มี · 🔴 ใช้โควตา Claude</div>
+    <div class="tools" id="tools"></div>
   </section>
 
   <p class="hint">คีย์ลัด: <b>Alt+M</b> เปิด/ปิดไมค์ · <b>Alt+0…9</b> เลือกเครื่องมือ · <b>Ctrl+Enter</b> ส่ง<br>
@@ -152,6 +155,9 @@
   let busy = false;
   autoChk.checked = store.get("autoSend", false);
   silenceChk.checked = store.get("sendOnSilence", false);
+  const silenceSec = $("silenceSec");
+  const clampSec = (v) => Math.min(10, Math.max(0.5, Math.round((Number(v) || 1.5) * 2) / 2));
+  silenceSec.value = clampSec(store.get("silenceSec", 1.5));
 
   // ---------- รอพูดยืนยันก่อนส่ง ----------
   const confirmChk = $("confirmVoice"), confirmBox = $("confirmBox");
@@ -449,7 +455,8 @@
       clearTimeout(silenceTimer);
       if (silenceChk.checked && !interim && box.value.trim()) {
         // ส่งเมื่อหยุดพูดห้ามยืนยันแทนผู้ใช้ — ถ้ากำลังรอยืนยัน ไม่ทำอะไร
-        silenceTimer = setTimeout(() => { if (!awaiting && !(confirmChk.checked && pendingTarget)) send(); }, 1500);
+        silenceTimer = setTimeout(() => { if (!awaiting && !(confirmChk.checked && pendingTarget)) send(); },
+                                  clampSec(silenceSec.value) * 1000);
       }
     };
     rec.onerror = (e) => {
@@ -522,6 +529,7 @@
   $("rescan").onclick = () => loadTools(true);
   autoChk.onchange = () => store.set("autoSend", autoChk.checked);
   silenceChk.onchange = () => { store.set("sendOnSilence", silenceChk.checked); clearTimeout(silenceTimer); };
+  silenceSec.onchange = () => { silenceSec.value = clampSec(silenceSec.value); store.set("silenceSec", Number(silenceSec.value)); };
   box.addEventListener("input", () => { if (pendingTarget) { pendingTarget = null; render(); } });
   box.addEventListener("keydown", (e) => {
     if (e.ctrlKey && e.key === "Enter") { e.preventDefault(); send(); }
