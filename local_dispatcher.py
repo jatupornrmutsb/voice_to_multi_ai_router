@@ -361,7 +361,9 @@ def gemini_error_message(e):
         return "Gemini ตอบช้าเกินไป (หมดเวลา) — ลองใหม่อีกครั้ง หรือกดปุ่มเลือกเครื่องมือเองแทน"
     if code in (400, 401, 403):
         return "Gemini API Key ไม่ถูกต้องหรือถูกยกเลิก — ตรวจ GEMINI_API_KEY แล้วเปิด start_router.bat ใหม่"
-    return f"Gemini ผิดพลาด: {e}"
+    # รายละเอียด error อาจมีข้อมูลภายใน — แสดงเฉพาะในหน้าต่างเซิร์ฟเวอร์ ไม่ส่งให้หน้าเว็บ
+    print(f"[Gemini error] {type(e).__name__}: {e}")
+    return "Gemini ผิดพลาด — ดูรายละเอียดในหน้าต่าง AI Router แล้วลองใหม่ หรือกดปุ่มเลือกเครื่องมือเองแทน"
 
 
 def route(text):
@@ -709,8 +711,10 @@ def run_ollama(prompt):
         r.raise_for_status()
         answer = r.json().get("response", "")
     except requests.RequestException as e:
-        new_job("ollama", prompt, status="error", output=str(e))
-        return False, f"เรียก Ollama ไม่สำเร็จ: {e}", None
+        print(f"[Ollama error] {type(e).__name__}: {e}")
+        msg = "เรียก Ollama ไม่สำเร็จ — Ollama เปิดอยู่หรือไม่? (รายละเอียดในหน้าต่าง AI Router)"
+        new_job("ollama", prompt, status="error", output=msg)
+        return False, msg, None
     new_job("ollama", prompt, status="done", output=answer)
     return True, "Ollama ตอบกลับแล้ว", answer
 
