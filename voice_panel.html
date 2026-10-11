@@ -47,6 +47,11 @@
   #send.rec { background: var(--rec); border-color: var(--rec); animation: pulse 1.4s infinite; }
   #status { white-space: pre-wrap; min-height: 1.55em; overflow-wrap: anywhere; }
   .hint { font-size: 13px; color: var(--muted); }
+  .row.words label { flex: 1 1 260px; }
+  .row.words input { flex: 1; min-width: 0; font: inherit; color: inherit; background: var(--input);
+    border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; }
+  #confirmBox .hint { margin-top: 4px; }
+  #send.await { background: var(--warn); border-color: var(--warn); color: #1b1c22; }
   .label-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
   .label-row .label { margin: 0; flex: 1; }
   .label-row button { padding: 4px 10px; font-size: 13px; }
@@ -93,9 +98,18 @@
         <input type="checkbox" id="autoSend"> Auto Send</label>
       <label title="พูดจบแล้วเงียบ 1.5 วินาที ระบบกดส่งให้เอง">
         <input type="checkbox" id="sendOnSilence"> ส่งเมื่อหยุดพูด</label>
+      <label title="ยังไม่ส่งจนกว่าจะพูดคำยืนยัน (หรือกดปุ่มส่ง) — พูดคำยกเลิกเพื่อไม่ส่ง">
+        <input type="checkbox" id="confirmVoice"> รอพูดยืนยัน</label>
       <span class="sp"></span>
       <button id="clear">ล้าง</button>
       <button id="send">ส่ง ▶</button>
+    </div>
+    <div id="confirmBox" hidden>
+      <div class="row words">
+        <label>คำยืนยัน <input id="confirmWords" type="text" spellcheck="false"></label>
+        <label>คำยกเลิก <input id="cancelWords" type="text" spellcheck="false"></label>
+      </div>
+      <div class="hint">คั่นแต่ละคำด้วยจุลภาค ( , ) — เพิ่ม/ลบคำได้ตามต้องการ · คำลงท้ายเช่น "ครับ ค่ะ นะ" ไม่ต้องใส่</div>
     </div>
   </section>
 
@@ -139,6 +153,25 @@
   autoChk.checked = store.get("autoSend", false);
   silenceChk.checked = store.get("sendOnSilence", false);
 
+  // ---------- รอพูดยืนยันก่อนส่ง ----------
+  const confirmChk = $("confirmVoice"), confirmBox = $("confirmBox");
+  const confirmInput = $("confirmWords"), cancelInput = $("cancelWords");
+  const DEFAULT_CONFIRM = "ok, โอเค, ตกลง, ดำเนินการ, ยืนยัน, ทำต่อ, ส่งเลย";
+  const DEFAULT_CANCEL = "ยกเลิก, ไม่เอา, ไม่ต้อง, cancel";
+  confirmChk.checked = store.get("confirmVoice", false);
+  confirmInput.value = store.get("confirmWords", DEFAULT_CONFIRM);
+  cancelInput.value = store.get("cancelWords", DEFAULT_CANCEL);
+  confirmBox.hidden = !confirmChk.checked;
+  let awaiting = false;    // ข้อความพร้อมส่งแล้ว รอคำยืนยัน
+  let confirmed = false;   // ผู้ใช้ยืนยันแล้ว — send() รอบถัดไปส่งจริง
+
+  // ตัดช่องว่าง เครื่องหมาย และคำลงท้ายสุภาพ เพื่อให้ "ตกลงครับ" / "OK." ตรงกับ "ตกลง" / "ok"
+  const TAIL = /(ครับผม|ครับ|คับ|ค่ะ|คะ|นะคะ|นะครับ|นะ|จ้า|จ้ะ|เลย|ด้วย)+$/;
+  const norm = (s) => s.toLowerCase().replace(/[\s.,!?'"“”‘’。、]+/g, "").replace(TAIL, "");
+  const wordList = (input) => input.value.split(/[,，]/).map(norm).filter(Boolean);
+  // ทั้งวลีต้องเป็นคำสั่ง (ไม่ใช่แค่มีคำนี้ปนในประโยคยาว) — กันส่งโดยไม่ตั้งใจ
+  const isWord = (text, input) => { const t = norm(text); return !!t && wordList(input).includes(t); };
+
   const show = (msg) => { statusEl.textContent = msg; };
   const labelOf = (id) => (tools.find((t) => t.id === id) || { label: id }).label;
 
@@ -171,7 +204,8 @@
       return b;
     }));
     sendBtn.disabled = busy;
-    sendBtn.textContent = busy ? "กำลังส่ง…" : (pendingTarget ? "ยืนยันส่ง ▶" : "ส่ง ▶");
+    sendBtn.textContent = busy ? "กำลังส่ง…" : (pendingTarget || awaiting ? "ยืนยันส่ง ▶" : "ส่ง ▶");
+    sendBtn.classList.toggle("await", awaiting && !busy);
   }
 
   function selectTool(id) {
@@ -203,8 +237,17 @@
   // ---------- ส่งคำสั่ง ----------
   async function send() {
     // ไมค์ยังเปิดอยู่: หยุดฟังก่อน รอคำสุดท้ายถอดเสร็จ แล้วค่อยส่ง
-    if (listening) return stopMic(true);
+    // กำลังรอยืนยัน แล้วผู้ใช้กดส่ง/พูดคำยืนยัน = ยืนยัน
+    if (awaiting) { awaiting = false; confirmed = true; }
+    // ข้อเสนอของ Gemini (ปุ่มกรอบเส้นประ) คือขั้นยืนยันอยู่แล้ว ไม่ต้องยืนยันซ้ำ
+    if (selected === "auto" && pendingTarget) confirmed = true;
+    if (listening) {
+      // ยืนยันแล้ว: ส่งข้อความตามที่เห็นในกล่องตอนนี้ ทิ้งเสียงที่ยังถอดไม่เสร็จ (เช่น คำยืนยันเอง)
+      if (confirmed) abortMic();
+      else return stopMic(true);   // ยังไม่ยืนยัน: รอถอดเสียงคำสุดท้ายก่อนส่ง
+    }
     const text = box.value.trim();
+    if (!text) confirmed = false;
     if (!text) return show("ยังไม่มีข้อความ");
     if (busy) return;
     const autoSend = autoChk.checked;
@@ -222,8 +265,20 @@
         const notOpen = tools.some((t) => t.id === r.target && !t.running);
         return show(`Gemini เลือก: ${labelOf(r.target)}`
           + (notOpen ? `\n⚠️ ${labelOf(r.target)} ยังไม่เปิด — เปิดโปรแกรมก่อนกดยืนยัน` : "")
-          + `\nแก้ข้อความได้ แล้วกด "ยืนยันส่ง" หรือกดปุ่มเครื่องมืออื่นเพื่อเปลี่ยน`);
+          + `\nแก้ข้อความได้ แล้วกด "ยืนยันส่ง" หรือกดปุ่มเครื่องมืออื่นเพื่อเปลี่ยน`
+          + (confirmChk.checked ? (startMic(), " · หรือพูดคำยืนยัน") : ""));
       }
+      if (confirmChk.checked && !confirmed) {
+        // รอพูดยืนยัน: ยังไม่ส่ง เปิดไมค์ฟังคำยืนยัน/ยกเลิก
+        awaiting = true;
+        const firstWords = (s) => s.split(/[,，]/).map((w) => w.trim()).filter(Boolean).slice(0, 3).join(" / ");
+        show(`⏸ รอยืนยัน — ส่งไปที่ ${target ? labelOf(target) : "🤖 อัตโนมัติ"}` + (autoSend ? " (Auto Send)" : "")
+          + `\nพูด "${firstWords(confirmInput.value)}" เพื่อส่ง · "${firstWords(cancelInput.value)}" เพื่อยกเลิก · หรือกดปุ่มยืนยันส่ง`);
+        if (!listening) startMic();
+        return;
+      }
+      confirmed = false;
+      awaiting = false;
       show("กำลังส่ง…");
       const body = { prompt: text, auto_send: autoSend };
       if (target) body.target = target;
@@ -335,6 +390,30 @@
     if (sendAfterStop) { sendAfterStop = false; send(); }
   }
 
+  // ปิดไมค์ทันทีโดยไม่รอผลถอดเสียงที่ค้างอยู่
+  function abortMic() {
+    listening = false;
+    sendAfterStop = false;
+    clearTimeout(silenceTimer);
+    clearTimeout(sendFallback);
+    if (rec) { rec.onresult = null; rec.abort(); }
+    interimEl.textContent = "";
+    renderMic();
+  }
+
+  // ยกเลิก = ล้างข้อความเดิม แล้วฟังต่อเพื่อรับข้อความใหม่ (ไม่ปิดไมค์)
+  function cancelSend() {
+    awaiting = false;
+    confirmed = false;
+    pendingTarget = null;
+    clearTimeout(silenceTimer);
+    box.value = "";
+    interimEl.textContent = "";
+    if (!listening) startMic();
+    render();
+    show("⏹ ยกเลิกแล้ว ไม่ได้ส่ง — รอรับข้อความใหม่ พูดได้เลย");
+  }
+
   function appendText(t) {
     if (!t) return;
     box.value = box.value.trim() ? box.value.trimEnd() + " " + t : t;
@@ -352,13 +431,25 @@
       let interim = "";
       for (let i = e.resultIndex; i < e.results.length; i++) {
         const res = e.results[i];
-        if (res.isFinal) appendText(res[0].transcript.trim());
-        else interim += res[0].transcript;
+        if (res.isFinal) {
+          const said = res[0].transcript.trim();
+          if (confirmChk.checked && (awaiting || pendingTarget)) {
+            if (isWord(said, confirmInput)) { interimEl.textContent = ""; clearTimeout(silenceTimer); send(); return; }
+            if (isWord(said, cancelInput)) { cancelSend(); return; }
+            // ไม่ใช่คำยืนยัน/ยกเลิก = ข้อความใหม่ → ทิ้งข้อความเดิม เริ่มรับข้อความใหม่
+            awaiting = confirmed = false;
+            pendingTarget = null;
+            box.value = "";
+            show("🔄 ไม่ได้ยืนยัน — รับข้อความใหม่แทนข้อความเดิม (พูดต่อได้เลย)");
+          }
+          appendText(said);
+        } else interim += res[0].transcript;
       }
       interimEl.textContent = interim;
       clearTimeout(silenceTimer);
       if (silenceChk.checked && !interim && box.value.trim()) {
-        silenceTimer = setTimeout(send, 1500);
+        // ส่งเมื่อหยุดพูดห้ามยืนยันแทนผู้ใช้ — ถ้ากำลังรอยืนยัน ไม่ทำอะไร
+        silenceTimer = setTimeout(() => { if (!awaiting && !(confirmChk.checked && pendingTarget)) send(); }, 1500);
       }
     };
     rec.onerror = (e) => {
@@ -420,7 +511,14 @@
   // ---------- ผูกเหตุการณ์ ----------
   micBtn.onclick = () => (listening ? stopMic() : startMic());
   sendBtn.onclick = () => { if (skipClick) { skipClick = false; return; } send(); };
-  $("clear").onclick = () => { box.value = ""; pendingTarget = null; render(); box.focus(); };
+  $("clear").onclick = () => { box.value = ""; pendingTarget = null; awaiting = confirmed = false; render(); box.focus(); };
+  confirmChk.onchange = () => {
+    store.set("confirmVoice", confirmChk.checked);
+    confirmBox.hidden = !confirmChk.checked;
+    if (!confirmChk.checked && awaiting) { awaiting = false; render(); show("ปิดการรอยืนยันแล้ว — กดส่งได้ตามปกติ"); }
+  };
+  confirmInput.onchange = () => store.set("confirmWords", confirmInput.value.trim() || DEFAULT_CONFIRM);
+  cancelInput.onchange = () => store.set("cancelWords", cancelInput.value.trim() || DEFAULT_CANCEL);
   $("rescan").onclick = () => loadTools(true);
   autoChk.onchange = () => store.set("autoSend", autoChk.checked);
   silenceChk.onchange = () => { store.set("sendOnSilence", silenceChk.checked); clearTimeout(silenceTimer); };
