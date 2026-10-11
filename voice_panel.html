@@ -1,0 +1,448 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI Router</title>
+<style>
+  :root {
+    --bg: #f5f5f8; --card: #ffffff; --fg: #1b1c22; --muted: #666a78; --line: #d9dae2;
+    --accent: #4f5bd5; --ok: #2f8f5b; --warn: #c98a00; --rec: #d23c3c; --input: #fafafc;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #15161d; --card: #1e1f2b; --fg: #e8e8f0; --muted: #a0a2b4; --line: #3a3b4d;
+      --accent: #6b76f0; --ok: #3aa56c; --warn: #f5c542; --rec: #ef5555; --input: #14141d;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg);
+    font: 15px/1.55 "Leelawadee UI", "Noto Sans Thai", system-ui, sans-serif; }
+  main { max-width: 760px; margin: 0 auto; padding: 24px 16px 40px; }
+  h1 { font-size: 20px; margin: 0 0 16px; display: flex; align-items: center; gap: 8px; }
+  h1 .sp { flex: 1; }
+  section { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px; margin-bottom: 12px; }
+  .label { font-size: 13px; color: var(--muted); margin-bottom: 8px; }
+  button { font: inherit; color: inherit; background: transparent; border: 1px solid var(--line);
+    border-radius: 8px; padding: 8px 14px; cursor: pointer; }
+  button:hover { border-color: var(--accent); }
+  button:disabled { opacity: .5; cursor: wait; }
+  .tools { display: flex; flex-wrap: wrap; gap: 8px; }
+  .tools button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .tools button.off { opacity: .45; }
+  .tools button.pending { outline: 2px dashed var(--warn); outline-offset: 2px; }
+  .tools kbd { font: 11px/1 inherit; opacity: .65; margin-left: 6px; }
+  .mic-row { display: flex; align-items: center; gap: 14px; margin-bottom: 10px; }
+  #mic { width: 60px; height: 60px; border-radius: 50%; font-size: 26px; padding: 0; flex: none; }
+  #mic.rec { background: var(--rec); border-color: var(--rec); color: #fff; animation: pulse 1.4s infinite; }
+  @keyframes pulse { 50% { box-shadow: 0 0 0 8px color-mix(in srgb, var(--rec) 25%, transparent); } }
+  #micState { color: var(--muted); }
+  textarea { width: 100%; min-height: 130px; resize: vertical; font: inherit; color: inherit;
+    background: var(--input); border: 1px solid var(--line); border-radius: 8px; padding: 10px; }
+  #interim { color: var(--muted); min-height: 1.55em; font-style: italic; margin-top: 6px; }
+  .row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px; margin-top: 10px; }
+  .row label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+  .row .sp { flex: 1; }
+  #send { background: var(--ok); border-color: var(--ok); color: #fff; padding: 8px 22px; user-select: none; touch-action: none; }
+  #send.rec { background: var(--rec); border-color: var(--rec); animation: pulse 1.4s infinite; }
+  #status { white-space: pre-wrap; min-height: 1.55em; overflow-wrap: anywhere; }
+  .hint { font-size: 13px; color: var(--muted); }
+  .label-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+  .label-row .label { margin: 0; flex: 1; }
+  .label-row button { padding: 4px 10px; font-size: 13px; }
+  #jobs { display: flex; flex-direction: column; gap: 10px; }
+  #jobs .empty { color: var(--muted); }
+  .job { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
+  .job.running { border-color: var(--warn); }
+  .job-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .job-head .sp { flex: 1; }
+  .job-head .meta { color: var(--muted); font-size: 13px; }
+  .job-head button { padding: 2px 10px; font-size: 13px; }
+  .job-prompt { color: var(--muted); margin-top: 4px; overflow-wrap: anywhere; }
+  .job details { margin-top: 6px; }
+  .job summary { cursor: pointer; color: var(--accent); font-size: 13px; }
+  .job pre { margin: 6px 0 0; max-height: 360px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere;
+    background: var(--input); border: 1px solid var(--line); border-radius: 6px; padding: 8px;
+    font: 13px/1.5 "Cascadia Mono", Consolas, "Leelawadee UI", monospace; }
+</style>
+</head>
+<body>
+<main>
+  <h1>🎙 AI Router <span class="sp"></span>
+    <button id="rescan" title="สแกนโปรแกรมที่ติดตั้งใหม่">⟳ สแกนใหม่</button>
+  </h1>
+
+  <section>
+    <div class="label-row">
+      <div class="label">1. งานเบื้องหลัง / คำตอบที่ดึงกลับ (Claude Code, Gemini CLI, ถาม Gemini, Antigravity ทุกแบบ, VS Code)</div>
+      <button id="clearJobs" title="ล้างรายการงาน (ยกเว้น Claude Code / Gemini CLI ที่ยังรันอยู่ — กดหยุดก่อน) · Antigravity: หยุดติดตามเท่านั้น งานใน IDE ยังทำต่อ">ล้างรายการ</button>
+    </div>
+    <div id="jobs"><div class="empty">ยังไม่มีงาน</div></div>
+  </section>
+
+  <section>
+    <div class="label">2. พูดหรือพิมพ์คำสั่ง</div>
+    <div class="mic-row">
+      <button id="mic" title="เริ่ม/หยุดฟัง (Alt+M)">🎤</button>
+      <div id="micState">กดปุ่มไมค์เพื่อเริ่มพูด</div>
+    </div>
+    <textarea id="box" placeholder="ข้อความคำสั่งจะขึ้นที่นี่ (แก้ไขได้)"></textarea>
+    <div id="interim"></div>
+    <div class="row">
+      <label title="ติ๊ก = กด Enter ในโปรแกรมปลายทางให้ / ไม่ติ๊ก = วางไว้ให้ตรวจก่อน">
+        <input type="checkbox" id="autoSend"> Auto Send</label>
+      <label title="พูดจบแล้วเงียบ 1.5 วินาที ระบบกดส่งให้เอง">
+        <input type="checkbox" id="sendOnSilence"> ส่งเมื่อหยุดพูด</label>
+      <span class="sp"></span>
+      <button id="clear">ล้าง</button>
+      <button id="send">ส่ง ▶</button>
+    </div>
+  </section>
+
+  <section>
+    <div class="label">3. เลือกเครื่องมือ (ปุ่มจาง = ติดตั้งแล้วแต่ยังไม่เปิด) · 🟢 ฟรี · 🟡 ฟรีจำกัด/ใช้สิทธิ์ที่มี · 🔴 ใช้โควตา Claude</div>
+    <div class="tools" id="tools"></div>
+  </section>
+
+  <section>
+    <div class="label">4. ผลลัพธ์</div>
+    <div id="status">กำลังตรวจเครื่องมือในเครื่อง…</div>
+  </section>
+
+  <p class="hint">คีย์ลัด: <b>Alt+M</b> เปิด/ปิดไมค์ · <b>Alt+0…9</b> เลือกเครื่องมือ · <b>Ctrl+Enter</b> ส่ง<br>
+    การถอดเสียงใช้บริการของเบราว์เซอร์ (Chrome ส่งเสียงไปถอดที่ Google) — อย่าพูดข้อมูลลับ</p>
+</main>
+
+<script>
+(function () {
+  "use strict";
+
+  const TOKEN = "__DISPATCH_TOKEN__";   // เซิร์ฟเวอร์ใส่ค่าจริงให้ตอนเปิดหน้า
+  const AUTO = { id: "auto", label: "🤖 อัตโนมัติ", hint: "ให้ Gemini เลือกจากคำพูด — เลือกตัวฟรีก่อน 🟢 → 🟡 → 🔴", cost: "free", running: true };
+  const COST_BADGE = { free: "🟢", included: "🟡", paid: "🔴" };
+  const COST_TEXT = { free: "ฟรี", included: "ฟรีแบบจำกัด/ใช้สิทธิ์ที่มีอยู่", paid: "ใช้โควตาแพ็กเกจ Claude" };
+  const $ = (id) => document.getElementById(id);
+  const toolsEl = $("tools"), box = $("box"), interimEl = $("interim"), statusEl = $("status");
+  const micBtn = $("mic"), micState = $("micState"), sendBtn = $("send");
+  const autoChk = $("autoSend"), silenceChk = $("sendOnSilence");
+
+  // ค่าที่จำไว้ในเบราว์เซอร์ (ถ้าเก็บไม่ได้ก็ใช้ค่าเริ่มต้น)
+  const store = {
+    get(k, d) { try { const v = localStorage.getItem("ld." + k); return v === null ? d : JSON.parse(v); } catch { return d; } },
+    set(k, v) { try { localStorage.setItem("ld." + k, JSON.stringify(v)); } catch {} },
+  };
+
+  let tools = [AUTO];
+  let selected = store.get("tool", "auto");
+  let pendingTarget = null;   // ปลายทางที่ Gemini เสนอ รอผู้ใช้ยืนยัน
+  let busy = false;
+  autoChk.checked = store.get("autoSend", false);
+  silenceChk.checked = store.get("sendOnSilence", false);
+
+  const show = (msg) => { statusEl.textContent = msg; };
+  const labelOf = (id) => (tools.find((t) => t.id === id) || { label: id }).label;
+
+  // ---------- เรียกเซิร์ฟเวอร์ ----------
+  async function api(method, path, body) {
+    let r;
+    try {
+      r = await fetch(path, {
+        method,
+        headers: { "Content-Type": "application/json", "X-Dispatch-Token": TOKEN },
+        body: body ? JSON.stringify(body) : undefined,
+      });
+    } catch {
+      throw new Error("ติดต่อเซิร์ฟเวอร์ไม่ได้ — start_router.bat ยังเปิดอยู่หรือไม่?");
+    }
+    try { return await r.json(); } catch { throw new Error(`HTTP ${r.status}`); }
+  }
+
+  // ---------- ปุ่มเลือกเครื่องมือ ----------
+  function render() {
+    toolsEl.replaceChildren(...tools.map((t, i) => {
+      const b = document.createElement("button");
+      b.append((COST_BADGE[t.cost] ? COST_BADGE[t.cost] + " " : "") + t.label);
+      if (i < 10) { const k = document.createElement("kbd"); k.textContent = "Alt+" + i; b.append(k); }
+      b.title = t.hint + (COST_TEXT[t.cost] ? ` · ${COST_TEXT[t.cost]}` : "") + (t.running ? "" : " (ยังไม่เปิด)");
+      b.classList.toggle("on", t.id === selected);
+      b.classList.toggle("pending", t.id === pendingTarget);
+      b.classList.toggle("off", !t.running);
+      b.onclick = () => selectTool(t.id);
+      return b;
+    }));
+    sendBtn.disabled = busy;
+    sendBtn.textContent = busy ? "กำลังส่ง…" : (pendingTarget ? "ยืนยันส่ง ▶" : "ส่ง ▶");
+  }
+
+  function selectTool(id) {
+    selected = id;
+    pendingTarget = null;
+    store.set("tool", id);
+    render();
+  }
+
+  async function loadTools(rescan = false) {
+    try {
+      const r = await api("GET", "/tools" + (rescan ? "?rescan=1" : ""));
+      if (!r.ok) throw new Error(r.error);
+      tools = [{ ...AUTO, running: r.gemini }, ...r.tools.filter((t) => t.installed)];
+      if (!tools.some((t) => t.id === selected)) selectTool("auto");
+      if (rescan || statusEl.textContent.startsWith("กำลังตรวจ")) {
+        const missing = r.tools.filter((t) => !t.installed).map((t) => t.label);
+        show(`พร้อมใช้งาน — พบ ${tools.length - 1} เครื่องมือในเครื่อง`
+          + (missing.length ? `\nไม่ได้ติดตั้ง: ${missing.join(", ")}` : "")
+          + (r.gemini ? "" : "\nโหมด 🤖 อัตโนมัติปิดอยู่ (ยังไม่ได้ตั้ง GEMINI_API_KEY) — กดเลือกเครื่องมือเอง"));
+      }
+    } catch (e) {
+      tools = [AUTO];
+      show("❌ " + e.message);
+    }
+    render();
+  }
+
+  // ---------- ส่งคำสั่ง ----------
+  async function send() {
+    // ไมค์ยังเปิดอยู่: หยุดฟังก่อน รอคำสุดท้ายถอดเสร็จ แล้วค่อยส่ง
+    if (listening) return stopMic(true);
+    const text = box.value.trim();
+    if (!text) return show("ยังไม่มีข้อความ");
+    if (busy) return;
+    const autoSend = autoChk.checked;
+    const target = selected !== "auto" ? selected : pendingTarget;
+    busy = true; render();
+    try {
+      if (!target && !autoSend) {
+        // โหมดอัตโนมัติ + ไม่ติ๊ก Auto Send: ให้ Gemini เสนอปลายทางก่อน แล้วรอยืนยัน
+        show("กำลังให้ Gemini เลือกปลายทาง…");
+        const r = await api("POST", "/dispatch", { prompt: text, dry_run: true });
+        if (!r.ok) return show("❌ " + (r.error || r.status));
+        if (r.target === "none") return show("Gemini เลือกปลายทางไม่ได้ — กดเลือกเครื่องมือเอง");
+        pendingTarget = r.target;
+        box.value = r.clean_prompt;
+        const notOpen = tools.some((t) => t.id === r.target && !t.running);
+        return show(`Gemini เลือก: ${labelOf(r.target)}`
+          + (notOpen ? `\n⚠️ ${labelOf(r.target)} ยังไม่เปิด — เปิดโปรแกรมก่อนกดยืนยัน` : "")
+          + `\nแก้ข้อความได้ แล้วกด "ยืนยันส่ง" หรือกดปุ่มเครื่องมืออื่นเพื่อเปลี่ยน`);
+      }
+      show("กำลังส่ง…");
+      const body = { prompt: text, auto_send: autoSend };
+      if (target) body.target = target;
+      const r = await api("POST", "/dispatch", body);
+      pendingTarget = null;
+      show((r.ok ? "✅ " : "❌ ") + (r.status || r.error) + (r.output ? "\n\n" + r.output : ""));
+      if (r.ok) box.value = "";
+      loadJobs();
+    } catch (e) {
+      show("❌ " + e.message);
+    } finally {
+      busy = false; render();
+    }
+  }
+
+  // ---------- งานเบื้องหลัง ----------
+  const jobsEl = $("jobs");
+  const openJobs = new Set();     // งานที่ผู้ใช้กางผลลัพธ์ไว้ (คงสถานะข้ามการรีเฟรช)
+  const seenDone = new Set();     // งานที่เสร็จแล้วและกางให้อัตโนมัติไปแล้ว
+  let hasRunningJobs = false;
+  const ICON = { running: "⏳", done: "✅", error: "❌", cancelled: "⏹" };
+  const STATUS_TEXT = { running: "กำลังทำ", done: "เสร็จ", error: "ผิดพลาด", cancelled: "ยกเลิกแล้ว" };
+  const fmtTime = (s) => (s >= 60 ? `${Math.floor(s / 60)} นาที ${s % 60} วิ` : `${s} วิ`);
+
+  function renderJobs(list) {
+    if (!list.length) {
+      jobsEl.replaceChildren(Object.assign(document.createElement("div"), { className: "empty", textContent: "ยังไม่มีงาน" }));
+      return;
+    }
+    jobsEl.replaceChildren(...list.map((j) => {
+      // งานที่เพิ่งเสร็จ กางผลลัพธ์ให้เห็นเลย
+      if (j.status !== "running" && !seenDone.has(j.id)) { seenDone.add(j.id); openJobs.add(j.id); }
+      const card = document.createElement("div");
+      card.className = "job " + j.status;
+      const head = document.createElement("div");
+      head.className = "job-head";
+      const title = document.createElement("b");
+      title.textContent = `${ICON[j.status] || ""} #${j.id} ${j.label}`;
+      const meta = document.createElement("span");
+      meta.className = "meta";
+      meta.textContent = `${STATUS_TEXT[j.status] || j.status} · ${fmtTime(j.elapsed)}`
+        + (j.status === "error" && j.returncode != null ? ` · exit ${j.returncode}` : "");
+      const sp = document.createElement("span");
+      sp.className = "sp";
+      head.append(title, meta, sp);
+      if (j.status === "running") {
+        const cancel = document.createElement("button");
+        cancel.textContent = "หยุด";
+        cancel.onclick = async () => { try { await api("POST", `/jobs/${j.id}/cancel`); } catch {} loadJobs(); };
+        head.append(cancel);
+      }
+      if (j.output) {
+        const copy = document.createElement("button");
+        copy.textContent = "คัดลอก";
+        copy.onclick = async () => {
+          try { await navigator.clipboard.writeText(j.output); copy.textContent = "คัดลอกแล้ว"; }
+          catch { copy.textContent = "คัดลอกไม่ได้"; }
+        };
+        head.append(copy);
+      }
+      const prompt = document.createElement("div");
+      prompt.className = "job-prompt";
+      prompt.textContent = "“" + j.prompt + "”";
+      card.append(head, prompt);
+      if (j.output || j.status === "running") {
+        const det = document.createElement("details");
+        det.open = openJobs.has(j.id);
+        det.ontoggle = () => (det.open ? openJobs.add(j.id) : openJobs.delete(j.id));
+        const sum = document.createElement("summary");
+        sum.textContent = j.status === "running" ? "ผลลัพธ์ระหว่างทำ" : "ผลลัพธ์" + (j.log ? ` (log: ${j.log})` : "");
+        const pre = document.createElement("pre");
+        pre.textContent = j.output || "(ยังไม่มีผลลัพธ์)";
+        det.append(sum, pre);
+        card.append(det);
+      }
+      return card;
+    }));
+  }
+
+  async function loadJobs() {
+    try {
+      const r = await api("GET", "/jobs");
+      if (!r.ok) return;
+      hasRunningJobs = r.jobs.some((j) => j.status === "running");
+      renderJobs(r.jobs);
+    } catch {}
+  }
+
+  $("clearJobs").onclick = async () => { try { await api("POST", "/jobs/clear"); } catch {} loadJobs(); };
+
+  // ---------- ไมโครโฟน (Web Speech API, ภาษาไทย) ----------
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  let rec = null, listening = false, silenceTimer = null;
+  let sendAfterStop = false, sendFallback = null;   // หยุดไมค์แล้วส่งเมื่อถอดเสียงคำสุดท้ายเสร็จ
+  let holding = false;                              // กำลังกดปุ่มส่งค้างเพื่อพูด
+
+  function renderMic() {
+    micBtn.classList.toggle("rec", listening);
+    micBtn.textContent = listening ? "⏹" : "🎤";
+    micState.textContent = holding ? "กำลังฟัง… ปล่อยปุ่มเพื่อส่ง"
+      : listening ? "กำลังฟัง… พูดได้เลย" : "กดปุ่มไมค์เพื่อเริ่มพูด หรือกดปุ่มส่งค้างไว้แล้วพูด";
+  }
+
+  function finishStop() {
+    clearTimeout(sendFallback);
+    listening = false;
+    interimEl.textContent = "";
+    renderMic();
+    if (sendAfterStop) { sendAfterStop = false; send(); }
+  }
+
+  function appendText(t) {
+    if (!t) return;
+    box.value = box.value.trim() ? box.value.trimEnd() + " " + t : t;
+    pendingTarget = null;
+    render();
+  }
+
+  function startMic() {
+    if (!SR) return show("❌ เบราว์เซอร์นี้ไม่รองรับการถอดเสียง — ใช้ Google Chrome หรือ Microsoft Edge");
+    rec = new SR();
+    rec.lang = "th-TH";
+    rec.continuous = true;
+    rec.interimResults = true;
+    rec.onresult = (e) => {
+      let interim = "";
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const res = e.results[i];
+        if (res.isFinal) appendText(res[0].transcript.trim());
+        else interim += res[0].transcript;
+      }
+      interimEl.textContent = interim;
+      clearTimeout(silenceTimer);
+      if (silenceChk.checked && !interim && box.value.trim()) {
+        silenceTimer = setTimeout(send, 1500);
+      }
+    };
+    rec.onerror = (e) => {
+      if (e.error === "not-allowed" || e.error === "service-not-allowed") {
+        listening = false;
+        show("❌ ไม่ได้รับอนุญาตให้ใช้ไมโครโฟน — คลิกไอคอนข้าง URL แล้วอนุญาต Microphone");
+      } else if (e.error !== "no-speech" && e.error !== "aborted") {
+        show("❌ ไมโครโฟน: " + e.error);
+      }
+    };
+    rec.onend = () => {
+      // Chrome หยุดฟังเองเป็นระยะ — ถ้ายังเปิดไมค์อยู่ให้เริ่มฟังต่อ
+      if (listening) { try { rec.start(); return; } catch {} }
+      finishStop();
+    };
+    listening = true;
+    rec.start();
+    renderMic();
+  }
+
+  // thenSend = true: หยุดฟังแล้วส่ง (รอผลถอดเสียงคำสุดท้ายจาก onend ไม่เกิน 2 วินาที)
+  function stopMic(thenSend = false) {
+    listening = false;
+    clearTimeout(silenceTimer);
+    sendAfterStop = thenSend;
+    if (thenSend) {
+      micState.textContent = "กำลังถอดเสียงคำสุดท้าย…";
+      sendFallback = setTimeout(finishStop, 2000);
+    }
+    if (rec) rec.stop(); else finishStop();
+    if (!thenSend) { interimEl.textContent = ""; renderMic(); }
+  }
+
+  // กดปุ่มส่งค้าง = เปิดไมค์ · ปล่อย = หยุดฟังแล้วส่ง · กดสั้นๆ = ส่งตามปกติ
+  let holdTimer = null, skipClick = false;
+  sendBtn.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0 || busy) return;
+    skipClick = false;
+    sendBtn.setPointerCapture(e.pointerId);
+    holdTimer = setTimeout(() => {
+      holding = true;
+      sendBtn.classList.add("rec");
+      if (!listening) startMic();
+      renderMic();
+    }, 350);
+  });
+  function endHold(cancelled) {
+    clearTimeout(holdTimer);
+    if (!holding) return;
+    holding = false;
+    skipClick = true;   // ไม่ให้ click ที่ตามมาส่งซ้ำ
+    sendBtn.classList.remove("rec");
+    if (!listening) return renderMic();   // เปิดไมค์ไม่สำเร็จ (เช่น ไม่ได้รับอนุญาต)
+    stopMic(!cancelled);
+  }
+  sendBtn.addEventListener("pointerup", () => endHold(false));
+  sendBtn.addEventListener("pointercancel", () => endHold(true));
+
+  // ---------- ผูกเหตุการณ์ ----------
+  micBtn.onclick = () => (listening ? stopMic() : startMic());
+  sendBtn.onclick = () => { if (skipClick) { skipClick = false; return; } send(); };
+  $("clear").onclick = () => { box.value = ""; pendingTarget = null; render(); box.focus(); };
+  $("rescan").onclick = () => loadTools(true);
+  autoChk.onchange = () => store.set("autoSend", autoChk.checked);
+  silenceChk.onchange = () => { store.set("sendOnSilence", silenceChk.checked); clearTimeout(silenceTimer); };
+  box.addEventListener("input", () => { if (pendingTarget) { pendingTarget = null; render(); } });
+  box.addEventListener("keydown", (e) => {
+    if (e.ctrlKey && e.key === "Enter") { e.preventDefault(); send(); }
+  });
+  document.addEventListener("keydown", (e) => {
+    if (!e.altKey || e.ctrlKey) return;
+    if (e.key === "m" || e.key === "M" || e.key === "ท") { e.preventDefault(); micBtn.click(); }
+    else if (/^[0-9]$/.test(e.key) && tools[Number(e.key)]) { e.preventDefault(); selectTool(tools[Number(e.key)].id); }
+  });
+
+  render();
+  renderMic();
+  loadTools();
+  loadJobs();
+  setInterval(() => { if (!busy && !document.hidden) loadTools(); }, 15000);
+  // ระหว่างมีงานกำลังทำ อัปเดตทุก 2 วินาที (แม้สลับไปหน้าต่างอื่น) ไม่มีงานก็อัปเดตทุก 15 วินาที
+  let jobTick = 0;
+  setInterval(() => { jobTick++; if (hasRunningJobs || jobTick % 8 === 0) loadJobs(); }, 2000);
+})();
+</script>
+</body>
+</html>
